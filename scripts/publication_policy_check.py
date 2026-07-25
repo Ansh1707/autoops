@@ -9,6 +9,8 @@ import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
+import yaml
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 GITIGNORE = ROOT / ".gitignore"
@@ -37,6 +39,17 @@ SECRET_RULES = {
     "*.p12",
     "*.pfx",
 }
+GOVERNANCE_FILES = (
+    ".github/CODEOWNERS",
+    ".github/dependabot.yml",
+    ".github/pull_request_template.md",
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "docs/security/repository-governance.md",
+)
+DEPENDABOT_ECOSYSTEMS = {"pip", "npm", "github-actions", "docker"}
 
 
 @dataclass(frozen=True)
@@ -77,6 +90,17 @@ def run_publication_policy_checks(
         path.is_file() and not path.read_text(encoding="utf-8").strip()
         for path in placeholders
     )
+    governance_paths = [root / path for path in GOVERNANCE_FILES]
+    governance_files_present = all(path.is_file() for path in governance_paths)
+    dependabot_path = root / ".github" / "dependabot.yml"
+    dependabot = yaml.safe_load(dependabot_path.read_text(encoding="utf-8")) if dependabot_path.exists() else {}
+    dependabot_ecosystems = {
+        update.get("package-ecosystem")
+        for update in (dependabot or {}).get("updates", [])
+        if isinstance(update, dict)
+    }
+    codeowners_path = root / ".github" / "CODEOWNERS"
+    codeowners = codeowners_path.read_text(encoding="utf-8") if codeowners_path.exists() else ""
 
     results = [
         PolicyResult(
@@ -116,6 +140,21 @@ def run_publication_policy_checks(
             and ".DS_Store" in docker_rules
             and "**/.DS_Store" in docker_rules,
             "macOS metadata is excluded from Git and Docker",
+        ),
+        PolicyResult(
+            "governance_files_present",
+            governance_files_present,
+            f"{len(governance_paths)} repository governance files exist",
+        ),
+        PolicyResult(
+            "dependency_update_coverage",
+            DEPENDABOT_ECOSYSTEMS.issubset(dependabot_ecosystems),
+            "Dependabot covers Python, npm, GitHub Actions, and Docker",
+        ),
+        PolicyResult(
+            "code_owner_present",
+            "@Ansh1707" in codeowners,
+            "AutoOps has an explicit repository code owner",
         ),
     ]
     failed = [result for result in results if not result.ok]

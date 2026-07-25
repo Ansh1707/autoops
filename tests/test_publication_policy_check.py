@@ -11,6 +11,9 @@ def test_publication_policy_current_repository_passes():
         "docker_private_directory_rules",
         "git_secret_rules",
         "docker_secret_rules",
+        "governance_files_present",
+        "dependency_update_coverage",
+        "code_owner_present",
     }
 
 
