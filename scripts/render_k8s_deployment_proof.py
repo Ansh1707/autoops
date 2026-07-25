@@ -17,6 +17,10 @@ IMAGE_OVERRIDES = {
     ("Deployment", "beat", "beat"): "autoops-worker:ci",
     ("Deployment", "frontend", "frontend"): "autoops-frontend:ci",
 }
+PROOF_RESOURCE_REQUESTS = {
+    "cpu": "50m",
+    "memory": "128Mi",
+}
 
 
 def _metadata(resource: dict[str, Any]) -> dict[str, Any]:
@@ -48,6 +52,8 @@ def render_resources(source: pathlib.Path = DEFAULT_SOURCE) -> list[dict[str, An
                 if key in IMAGE_OVERRIDES:
                     container["image"] = IMAGE_OVERRIDES[key]
                     container["imagePullPolicy"] = "Never"
+                container_resources = container.setdefault("resources", {})
+                container_resources["requests"] = dict(PROOF_RESOURCE_REQUESTS)
     return resources
 
 

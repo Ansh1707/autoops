@@ -23,6 +23,10 @@ def test_render_k8s_deployment_proof_uses_local_images_and_small_replicas():
     assert beat_container["image"] == "autoops-worker:ci"
     assert frontend_container["image"] == "autoops-frontend:ci"
     assert api_container["imagePullPolicy"] == "Never"
+    assert worker_container["resources"]["requests"] == {
+        "cpu": "50m",
+        "memory": "128Mi",
+    }
 
 
 def test_render_k8s_deployment_proof_writes_manifest(tmp_path):

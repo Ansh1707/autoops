@@ -1,4 +1,4 @@
-FROM node:20.19.5-alpine3.22
+FROM node:20.19.5-alpine3.22 AS build
 
 WORKDIR /app
 
@@ -6,9 +6,11 @@ COPY --chown=node:node package*.json ./
 RUN npm ci
 
 COPY --chown=node:node . .
-RUN chown -R node:node /app
+RUN npm run build
 
-EXPOSE 5173
-USER node
-# The --host 0.0.0.0 flag is required for Vite to expose the port outside the container
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+FROM nginxinc/nginx-unprivileged:1.27.5-alpine
+
+COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
+
+EXPOSE 8080
+USER nginx
