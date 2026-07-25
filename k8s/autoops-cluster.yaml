@@ -589,12 +589,12 @@ spec:
               drop: ["ALL"]
           readinessProbe:
             exec:
-              command: ["python", "-c", "import worker.tasks"]
+              command: ["sh", "-c", "kill -0 1"]
             initialDelaySeconds: 15
             periodSeconds: 30
           livenessProbe:
             exec:
-              command: ["python", "-c", "import worker.tasks"]
+              command: ["sh", "-c", "kill -0 1"]
             initialDelaySeconds: 60
             periodSeconds: 60
           volumeMounts:
