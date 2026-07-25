@@ -44,7 +44,7 @@ data:
   AUTOOPS_ALLOWED_ROOTS: /app
   AUTOOPS_BACKUP_DIR: /app/backups
   AUTOOPS_INBOX: /app/inbox
-  AUTOOPS_REQUIRE_ENCRYPTED_SECRETS: "false"
+  REQUIRE_ENCRYPTION: "false"
   CHROMA_PERSIST_DIR: /app/.cache/chroma_data
   GMAIL_AUTH_BIND_ADDR: 0.0.0.0
   GMAIL_AUTH_HOST: localhost
@@ -78,6 +78,19 @@ spec:
   resources:
     requests:
       storage: 10Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: autoops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
 
 ---
 apiVersion: v1
@@ -151,6 +164,7 @@ spec:
               memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           readinessProbe:
@@ -163,6 +177,17 @@ spec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 20
             periodSeconds: 20
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+            - name: redis-tmp
+              mountPath: /tmp
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-data
+        - name: redis-tmp
+          emptyDir: {}
 
 ---
 apiVersion: v1
@@ -232,6 +257,7 @@ spec:
               memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           readinessProbe:
@@ -247,10 +273,18 @@ spec:
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data
+            - name: postgres-run
+              mountPath: /var/run/postgresql
+            - name: postgres-tmp
+              mountPath: /tmp
       volumes:
         - name: postgres-data
           persistentVolumeClaim:
             claimName: postgres-data
+        - name: postgres-run
+          emptyDir: {}
+        - name: postgres-tmp
+          emptyDir: {}
 
 ---
 apiVersion: v1
@@ -313,6 +347,11 @@ spec:
             - configMapRef:
                 name: autoops-config
           env:
+            - name: AUTOOPS_REQUIRE_ENCRYPTED_SECRETS
+              valueFrom:
+                configMapKeyRef:
+                  name: autoops-config
+                  key: REQUIRE_ENCRYPTION
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -425,6 +464,11 @@ spec:
             - configMapRef:
                 name: autoops-config
           env:
+            - name: AUTOOPS_REQUIRE_ENCRYPTED_SECRETS
+              valueFrom:
+                configMapKeyRef:
+                  name: autoops-config
+                  key: REQUIRE_ENCRYPTION
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -511,6 +555,11 @@ spec:
             - configMapRef:
                 name: autoops-config
           env:
+            - name: AUTOOPS_REQUIRE_ENCRYPTED_SECRETS
+              valueFrom:
+                configMapKeyRef:
+                  name: autoops-config
+                  key: REQUIRE_ENCRYPTION
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

@@ -373,17 +373,25 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    refreshOps();
+    const initialOpsTimeout = window.setTimeout(() => {
+      void refreshOps();
+    }, 0);
     const opsInterval = window.setInterval(refreshOps, 15000);
-    return () => window.clearInterval(opsInterval);
+    return () => {
+      window.clearTimeout(initialOpsTimeout);
+      window.clearInterval(opsInterval);
+    };
   }, [refreshOps]);
 
   useEffect(() => {
-    if (apiToken) {
-      refreshBackups();
-      refreshAudit();
-      refreshOps();
-    }
+    if (!apiToken) return;
+
+    const authenticatedRefreshTimeout = window.setTimeout(() => {
+      void refreshBackups();
+      void refreshAudit();
+      void refreshOps();
+    }, 0);
+    return () => window.clearTimeout(authenticatedRefreshTimeout);
   }, [apiToken, refreshBackups, refreshAudit, refreshOps]);
 
   useEffect(() => {

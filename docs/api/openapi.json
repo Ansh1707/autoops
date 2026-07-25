@@ -25,6 +25,7 @@
             "type": "string"
           },
           "metadata_json": {
+            "additionalProperties": true,
             "default": {},
             "title": "Metadata Json",
             "type": "object"
@@ -303,6 +304,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
