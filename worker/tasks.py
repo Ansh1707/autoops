@@ -27,7 +27,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
-from agent.planner import run_investigation
 from api.models import InvestigationJob
 from api.status import JobStatus
 
@@ -132,6 +131,8 @@ def investigate_task(self, goal: str) -> dict:
         )
 
     try:
+        from agent.planner import run_investigation
+
         # ── Phase 3: Agent loop ────────────────────────────────────────────────
         # Pass the callback so every tool execution triggers a live DB write.
         result, trace_log = run_investigation(
@@ -190,6 +191,8 @@ def watchdog_task() -> dict:
         "If everything looks healthy, reply with: OK — all systems normal.\n\n"
         f"Stats:\n{stats}"
     )
+
+    from agent.planner import run_investigation
 
     result, trace_log = run_investigation(goal, job_id="watchdog")
     return {"result": result, "trace_length": len(trace_log)}

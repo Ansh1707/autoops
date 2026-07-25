@@ -49,9 +49,11 @@ data:
   GMAIL_AUTH_BIND_ADDR: 0.0.0.0
   GMAIL_AUTH_HOST: localhost
   GMAIL_AUTH_PORTS: 8080,8081,8082,8083,8084
+  HOME: /app
   JWT_ALGORITHM: HS256
   OLLAMA_BASE_URL: http://ollama:11434
   REDIS_URL: redis://redis:6379/0
+  XDG_CACHE_HOME: /app/.cache
 
 ---
 apiVersion: v1
@@ -552,7 +554,13 @@ spec:
         - name: beat
           image: ghcr.io/your-org/autoops-worker:2026.07.05
           imagePullPolicy: IfNotPresent
-          command: ["celery", "-A", "worker.tasks.celery_app", "beat", "--loglevel=info"]
+          command:
+            - celery
+            - -A
+            - worker.tasks.celery_app
+            - beat
+            - --loglevel=info
+            - --schedule=/tmp/celerybeat-schedule
           envFrom:
             - configMapRef:
                 name: autoops-config
