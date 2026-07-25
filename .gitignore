@@ -1,0 +1,80 @@
+# Local environment and application secrets
+.env
+.env.*
+!.env.example
+secrets.autoops.enc
+*.autoops.enc
+.secrets
+.secrets.*
+Credentials.json
+credentials.json
+client_secret*.json
+token.json
+token*.json
+gmail_token.json
+gmail_token*.json
+
+# Private keys and credential stores
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# Personal documents and runtime data
+data/*
+!data/.gitkeep
+inbox/*
+!inbox/.gitkeep
+notes/*
+!notes/.gitkeep
+papers/*
+!papers/.gitkeep
+uploads/*
+!uploads/.gitkeep
+chroma_data/*
+!chroma_data/.gitkeep
+backups/*
+!backups/.gitkeep
+reports/*
+!reports/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Local databases and process state
+*.db
+*.sqlite
+*.sqlite3
+*.pid
+celerybeat-schedule*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Frontend build and dependency output
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.local
+
+# Operating system and editor metadata
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

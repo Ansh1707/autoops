@@ -1,0 +1,223 @@
+services:
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - POSTGRES_DB=${POSTGRES_DB:-autoops}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d autoops"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=${AUTOOPS_DOCKER_REDIS_URL:-redis://redis:6379/0}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-autoops}
+      - OLLAMA_BASE_URL=${AUTOOPS_DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b}
+      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-False}
+      - AUTOOPS_ENV=${AUTOOPS_ENV:-development}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - AUTOOPS_ALLOW_MOCK_TOKEN=${AUTOOPS_ALLOW_MOCK_TOKEN:-true}
+      - AUTOOPS_BOOTSTRAP_USERNAME=${AUTOOPS_BOOTSTRAP_USERNAME:-admin}
+      - AUTOOPS_BOOTSTRAP_PASSWORD=${AUTOOPS_BOOTSTRAP_PASSWORD:?Set AUTOOPS_BOOTSTRAP_PASSWORD in .env}
+      - AUTOOPS_BOOTSTRAP_ROLE=${AUTOOPS_BOOTSTRAP_ROLE:-owner}
+      - GMAIL_CREDENTIALS_PATH=${GMAIL_CREDENTIALS_PATH:-/app/Credentials.json}
+      - GMAIL_TOKEN_PATH=${GMAIL_TOKEN_PATH:-/app/.gmail/token.json}
+      - GMAIL_AUTH_HOST=${GMAIL_AUTH_HOST:-localhost}
+      - GMAIL_AUTH_BIND_ADDR=${GMAIL_AUTH_BIND_ADDR:-0.0.0.0}
+      - GMAIL_AUTH_PORTS=${GMAIL_AUTH_PORTS:-8080,8081,8082,8083,8084}
+      # ── File access control ──────────────────────────────────
+      # /app           = your autoops project (already inside container)
+      # /mac/downloads = your Mac ~/Downloads folder (mounted below)
+      # /mac/documents = your Mac ~/Documents folder (mounted below)
+      # /mac/desktop   = your Mac ~/Desktop folder   (mounted below)
+      - AUTOOPS_ALLOWED_ROOTS=/app:/mac/downloads:/mac/documents:/mac/desktop
+      - AUTOOPS_INBOX=/app/inbox
+      - AUTOOPS_BACKUP_DIR=/app/backups
+      - CHROMA_PERSIST_DIR=/app/.cache/chroma_data
+      - AUTOOPS_RATE_LIMIT_ENABLED=true
+      - AUTOOPS_RATE_LIMIT_REQUESTS_PER_MINUTE=600
+      - AUTOOPS_RATE_LIMIT_JOB_SUBMITS_PER_MINUTE=20
+      - MAX_TOOL_OUTPUT_CHARS=4000
+    volumes:
+      - chroma_cache:/app/.cache
+      - ./Credentials.json:/app/Credentials.json:ro
+      - gmail_data:/app/.gmail
+      # ── Inbox and personal subfolders ────────────────────────
+      # These are created inside your autoops project folder on Mac.
+      # Drop files here and the agent can read them via /app/inbox etc.
+      - ./inbox:/app/inbox
+      - ./papers:/app/papers
+      - ./notes:/app/notes
+      - ./data:/app/data
+      - ./backups:/app/backups
+      # ── Mac folders mounted read-only (:ro) ──────────────────
+      # :ro means Docker can read but NEVER write, delete, or modify
+      # your actual Mac files. This is enforced at the OS level.
+      - "${AUTOOPS_DOWNLOADS_DIR:-${HOME}/Downloads}:/mac/downloads:ro"
+      - "${AUTOOPS_DOCUMENTS_DIR:-${HOME}/Documents}:/mac/documents:ro"
+      - "${AUTOOPS_DESKTOP_DIR:-${HOME}/Desktop}:/mac/desktop:ro"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=${AUTOOPS_DOCKER_REDIS_URL:-redis://redis:6379/0}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-autoops}
+      - OLLAMA_BASE_URL=${AUTOOPS_DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b}
+      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-False}
+      - AUTOOPS_ENV=${AUTOOPS_ENV:-development}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - AUTOOPS_ALLOW_MOCK_TOKEN=${AUTOOPS_ALLOW_MOCK_TOKEN:-true}
+      - AUTOOPS_BOOTSTRAP_USERNAME=${AUTOOPS_BOOTSTRAP_USERNAME:-admin}
+      - AUTOOPS_BOOTSTRAP_PASSWORD=${AUTOOPS_BOOTSTRAP_PASSWORD:?Set AUTOOPS_BOOTSTRAP_PASSWORD in .env}
+      - AUTOOPS_BOOTSTRAP_ROLE=${AUTOOPS_BOOTSTRAP_ROLE:-owner}
+      - GMAIL_CREDENTIALS_PATH=${GMAIL_CREDENTIALS_PATH:-/app/Credentials.json}
+      - GMAIL_TOKEN_PATH=${GMAIL_TOKEN_PATH:-/app/.gmail/token.json}
+      - GMAIL_AUTH_HOST=${GMAIL_AUTH_HOST:-localhost}
+      - GMAIL_AUTH_BIND_ADDR=${GMAIL_AUTH_BIND_ADDR:-0.0.0.0}
+      - GMAIL_AUTH_PORTS=${GMAIL_AUTH_PORTS:-8080,8081,8082,8083,8084}
+      # ── File access control (must match api service exactly) ─
+      - AUTOOPS_ALLOWED_ROOTS=/app:/mac/downloads:/mac/documents:/mac/desktop
+      - AUTOOPS_INBOX=/app/inbox
+      - AUTOOPS_BACKUP_DIR=/app/backups
+      - CHROMA_PERSIST_DIR=/app/.cache/chroma_data
+      - AUTOOPS_RATE_LIMIT_ENABLED=true
+      - AUTOOPS_RATE_LIMIT_REQUESTS_PER_MINUTE=600
+      - AUTOOPS_RATE_LIMIT_JOB_SUBMITS_PER_MINUTE=20
+      - MAX_TOOL_OUTPUT_CHARS=4000
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
+      - "8083:8083"
+      - "8084:8084"
+    volumes:
+      - chroma_cache:/app/.cache
+      - ./Credentials.json:/app/Credentials.json:ro
+      - gmail_data:/app/.gmail
+      # ── Same mounts as api — worker runs agent tools too ─────
+      - ./inbox:/app/inbox
+      - ./papers:/app/papers
+      - ./notes:/app/notes
+      - ./data:/app/data
+      - ./backups:/app/backups
+      - "${AUTOOPS_DOWNLOADS_DIR:-${HOME}/Downloads}:/mac/downloads:ro"
+      - "${AUTOOPS_DOCUMENTS_DIR:-${HOME}/Documents}:/mac/documents:ro"
+      - "${AUTOOPS_DESKTOP_DIR:-${HOME}/Desktop}:/mac/desktop:ro"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    command: ["celery", "-A", "worker.tasks.celery_app", "beat", "--loglevel=info"]
+    environment:
+      - REDIS_URL=${AUTOOPS_DOCKER_REDIS_URL:-redis://redis:6379/0}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-autoops}
+      - OLLAMA_BASE_URL=${AUTOOPS_DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b}
+      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-False}
+      - AUTOOPS_ENV=${AUTOOPS_ENV:-development}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - AUTOOPS_ALLOW_MOCK_TOKEN=${AUTOOPS_ALLOW_MOCK_TOKEN:-true}
+      - AUTOOPS_BOOTSTRAP_USERNAME=${AUTOOPS_BOOTSTRAP_USERNAME:-admin}
+      - AUTOOPS_BOOTSTRAP_PASSWORD=${AUTOOPS_BOOTSTRAP_PASSWORD:?Set AUTOOPS_BOOTSTRAP_PASSWORD in .env}
+      - AUTOOPS_BOOTSTRAP_ROLE=${AUTOOPS_BOOTSTRAP_ROLE:-owner}
+      - GMAIL_CREDENTIALS_PATH=${GMAIL_CREDENTIALS_PATH:-/app/Credentials.json}
+      - GMAIL_TOKEN_PATH=${GMAIL_TOKEN_PATH:-/app/.gmail/token.json}
+      - GMAIL_AUTH_HOST=${GMAIL_AUTH_HOST:-localhost}
+      - GMAIL_AUTH_BIND_ADDR=${GMAIL_AUTH_BIND_ADDR:-0.0.0.0}
+      - GMAIL_AUTH_PORTS=${GMAIL_AUTH_PORTS:-8080,8081,8082,8083,8084}
+      - AUTOOPS_ALLOWED_ROOTS=/app:/mac/downloads:/mac/documents:/mac/desktop
+      - AUTOOPS_INBOX=/app/inbox
+      - AUTOOPS_BACKUP_DIR=/app/backups
+      - CHROMA_PERSIST_DIR=/app/.cache/chroma_data
+      - AUTOOPS_RATE_LIMIT_ENABLED=true
+      - AUTOOPS_RATE_LIMIT_REQUESTS_PER_MINUTE=600
+      - AUTOOPS_RATE_LIMIT_JOB_SUBMITS_PER_MINUTE=20
+      - MAX_TOOL_OUTPUT_CHARS=4000
+    volumes:
+      - chroma_cache:/app/.cache
+      - ./Credentials.json:/app/Credentials.json:ro
+      - gmail_data:/app/.gmail
+      - ./inbox:/app/inbox
+      - ./papers:/app/papers
+      - ./notes:/app/notes
+      - ./data:/app/data
+      - ./backups:/app/backups
+      - "${AUTOOPS_DOWNLOADS_DIR:-${HOME}/Downloads}:/mac/downloads:ro"
+      - "${AUTOOPS_DOCUMENTS_DIR:-${HOME}/Documents}:/mac/documents:ro"
+      - "${AUTOOPS_DESKTOP_DIR:-${HOME}/Desktop}:/mac/desktop:ro"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  chroma_cache:
+  gmail_data:

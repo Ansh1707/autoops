@@ -1,0 +1,68 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: autoops-alerts
+  namespace: autoops
+  labels:
+    app.kubernetes.io/name: autoops
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: autoops.slo
+      rules:
+        - alert: AutoOpsApiDown
+          expr: up{service="api"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: AutoOps API scrape target is down
+            description: Prometheus cannot scrape the AutoOps API service.
+            runbook_url: docs/runbooks/autoops-api-down.md
+        - alert: AutoOpsHighApiErrorRate
+          expr: sum(rate(autoops_api_requests_total{status_code=~"5.."}[5m])) / clamp_min(sum(rate(autoops_api_requests_total[5m])), 1) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: AutoOps API 5xx rate is above 5 percent
+            description: API server errors are breaching the operational error budget.
+            runbook_url: docs/runbooks/autoops-high-api-error-rate.md
+        - alert: AutoOpsHighApiLatency
+          expr: autoops_api_request_duration_seconds_max > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: AutoOps API request latency is high
+            description: The maximum observed API request duration is above 2 seconds.
+            runbook_url: docs/runbooks/autoops-high-api-latency.md
+        - alert: AutoOpsRateLimitPressure
+          expr: sum(rate(autoops_api_rate_limit_blocks_total[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AutoOps is rate-limiting a high number of requests
+            description: Clients are being blocked by AutoOps API rate limits.
+            runbook_url: docs/runbooks/autoops-rate-limit-pressure.md
+        - alert: AutoOpsActiveJobBacklog
+          expr: autoops_jobs_active > 20
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: AutoOps active job backlog is high
+            description: Non-terminal jobs have exceeded the configured operational backlog target.
+            runbook_url: docs/runbooks/autoops-active-job-backlog.md
+        - alert: AutoOpsFailedJobsIncreasing
+          expr: increase(autoops_jobs_total{status="FAILED"}[15m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AutoOps jobs are failing
+            description: One or more AutoOps investigations failed in the last 15 minutes.
+            runbook_url: docs/runbooks/autoops-failed-jobs.md

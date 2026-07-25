@@ -1,0 +1,32 @@
+FROM python:3.11.9-slim-bookworm AS builder
+
+WORKDIR /app
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y gcc libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+FROM python:3.11.9-slim-bookworm AS runtime
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN addgroup --system autoops \
+    && adduser --system --ingroup autoops --home /app autoops \
+    && mkdir -p /app/.cache /app/inbox /app/papers /app/notes /app/data /app/backups \
+    && chown -R autoops:autoops /app
+
+COPY --from=builder /usr/local /usr/local
+COPY --chown=autoops:autoops . .
+
+USER autoops
+CMD ["celery", "-A", "worker.tasks.celery_app", "worker", "--loglevel=info"]

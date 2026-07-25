@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "migrations": [
+    {
+      "checksum": "92ab39fdb4b7c8d3a209ee84ae794e5b95066b0d1758098d55d32b59573c7a3c",
+      "description": "Create the investigation job table used by the agent worker.",
+      "id": "0001_initial_jobs",
+      "path": "0001_initial_jobs.sql"
+    },
+    {
+      "checksum": "a07355d4dc689796e2e02761d9dc9e85a01cd3b4ee9ad5f8c17ba5463e45e50b",
+      "description": "Create append-only audit events with hash-chain fields.",
+      "id": "0002_audit_chain",
+      "path": "0002_audit_chain.sql"
+    },
+    {
+      "checksum": "62e2266e0abea853b71f47c559869af776f8b93cfbaf0b35bb75da58cc54605e",
+      "description": "Create local users for RBAC-backed API access.",
+      "id": "0003_users_rbac",
+      "path": "0003_users_rbac.sql"
+    },
+    {
+      "checksum": "f05f579bf700d662a1b686ddb4c6c23d29c962ae949ffe4274d3f1cb5c38450b",
+      "description": "Track applied schema migrations for drift detection.",
+      "id": "0004_schema_ledger",
+      "path": "0004_schema_ledger.sql"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+FROM node:20.11.1-alpine3.19
+
+WORKDIR /app
+
+COPY --chown=node:node package*.json ./
+RUN npm ci
+
+COPY --chown=node:node . .
+RUN chown -R node:node /app
+
+EXPOSE 5173
+USER node
+# The --host 0.0.0.0 flag is required for Vite to expose the port outside the container
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

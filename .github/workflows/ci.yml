@@ -1,0 +1,335 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan Git history with Gitleaks
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo:ro" \
+            ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            git /repo \
+            --redact \
+            --no-banner \
+            --max-decode-depth=2 \
+            --max-archive-depth=1
+
+  release-gate:
+    name: Release gate
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: autoops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/autoops
+      REDIS_URL: redis://localhost:6379/0
+      CHROMA_PERSIST_DIR: /tmp/autoops-chroma
+      OLLAMA_BASE_URL: http://localhost:11434
+      AUTOOPS_ENV: ci
+      AUTOOPS_BUILD_SHA: ${{ github.sha }}
+      AUTOOPS_BUILD_REF: ${{ github.ref_name }}
+      AUTOOPS_IMAGE_TAG: ci-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate ephemeral CI authentication secret
+        run: echo "JWT_SECRET_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r requirements.txt
+      - run: npm ci
+        working-directory: frontend
+      - run: python scripts/release_check.py
+      - run: python scripts/release_manifest.py --output reports/release-manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: reports/release-manifest.json
+          if-no-files-found: error
+      - name: Run Trivy vulnerability scan
+        run: |
+          mkdir -p reports
+          set +e
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$RUNNER_TEMP/trivy-cache:/root/.cache" \
+            aquasec/trivy:0.53.0 fs \
+            --scanners vuln,misconfig \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --format json \
+            --output /workspace/reports/trivy-fs.json \
+            --skip-dirs /workspace/venv \
+            --skip-dirs /workspace/frontend/node_modules \
+            --skip-dirs /workspace/frontend/dist \
+            /workspace
+          echo "$?" > reports/trivy-fs.exitcode
+          exit 0
+      - name: Run package vulnerability audits
+        run: |
+          mkdir -p reports
+          set +e
+          python -m pip install pip-audit==2.10.1
+          pip_audit_install_status=$?
+          if [ "$pip_audit_install_status" -eq 0 ]; then
+            python -m pip_audit \
+              -r requirements.txt \
+              --format json \
+              --output reports/pip-audit.json
+            pip_audit_status=$?
+          else
+            printf '{"error":"pip-audit installation failed"}\n' > reports/pip-audit.json
+            pip_audit_status=$pip_audit_install_status
+          fi
+          npm audit \
+            --audit-level=high \
+            --json \
+            --prefix frontend > reports/npm-audit.json
+          npm_audit_status=$?
+          echo "$pip_audit_status" > reports/pip-audit.exitcode
+          echo "$npm_audit_status" > reports/npm-audit.exitcode
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-fs-report
+          path: |
+            reports/trivy-fs.json
+            reports/trivy-fs.exitcode
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-audit-reports
+          path: |
+            reports/pip-audit.json
+            reports/pip-audit.exitcode
+            reports/npm-audit.json
+            reports/npm-audit.exitcode
+          if-no-files-found: error
+      - name: Enforce vulnerability scan results
+        run: |
+          test "$(cat reports/trivy-fs.exitcode)" = "0"
+          test "$(cat reports/pip-audit.exitcode)" = "0"
+          test "$(cat reports/npm-audit.exitcode)" = "0"
+
+  image-release:
+    name: Build, push, and sign images
+    needs: release-gate
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@v3.5.0
+      - name: Compute image metadata
+        id: image-meta
+        shell: bash
+        run: |
+          repo="${GITHUB_REPOSITORY,,}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$GITHUB_SHA"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "api=ghcr.io/$repo/autoops-api:$tag" >> "$GITHUB_OUTPUT"
+          echo "worker=ghcr.io/$repo/autoops-worker:$tag" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/$repo/autoops-frontend:$tag" >> "$GITHUB_OUTPUT"
+      - name: Build and push API image
+        id: build-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.api
+          push: true
+          tags: ${{ steps.image-meta.outputs.api }}
+          provenance: true
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.image-meta.outputs.tag }}
+      - name: Build and push worker image
+        id: build-worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: ${{ steps.image-meta.outputs.worker }}
+          provenance: true
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.image-meta.outputs.tag }}
+      - name: Build and push frontend image
+        id: build-frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile.frontend
+          push: true
+          tags: ${{ steps.image-meta.outputs.frontend }}
+          provenance: true
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.image-meta.outputs.tag }}
+      - name: Sign image digests
+        shell: bash
+        run: |
+          mkdir -p reports
+          api_ref="${{ steps.image-meta.outputs.api }}@${{ steps.build-api.outputs.digest }}"
+          worker_ref="${{ steps.image-meta.outputs.worker }}@${{ steps.build-worker.outputs.digest }}"
+          frontend_ref="${{ steps.image-meta.outputs.frontend }}@${{ steps.build-frontend.outputs.digest }}"
+
+          cosign sign --yes "$api_ref"
+          cosign sign --yes "$worker_ref"
+          cosign sign --yes "$frontend_ref"
+
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/ci.yml@${GITHUB_REF}"
+          issuer="https://token.actions.githubusercontent.com"
+          cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$api_ref" > reports/cosign-verify-api.json
+          cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$worker_ref" > reports/cosign-verify-worker.json
+          cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "$frontend_ref" > reports/cosign-verify-frontend.json
+
+          cat > reports/image-signatures.json <<EOF
+          {
+            "issuer": "$issuer",
+            "identity": "$identity",
+            "images": [
+              {"name": "api", "reference": "$api_ref", "digest": "${{ steps.build-api.outputs.digest }}"},
+              {"name": "worker", "reference": "$worker_ref", "digest": "${{ steps.build-worker.outputs.digest }}"},
+              {"name": "frontend", "reference": "$frontend_ref", "digest": "${{ steps.build-frontend.outputs.digest }}"}
+            ]
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-signing-evidence
+          path: |
+            reports/image-signatures.json
+            reports/cosign-verify-*.json
+          if-no-files-found: error
+
+  k8s-deployment-proof:
+    name: Kubernetes deployment proof
+    needs: release-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+      - uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: autoops-proof
+          wait: 120s
+      - name: Build local deployment images
+        run: |
+          docker build -t autoops-api:ci -f Dockerfile.api .
+          docker build -t autoops-worker:ci -f Dockerfile.worker .
+          docker build -t autoops-frontend:ci -f frontend/Dockerfile.frontend frontend
+      - name: Load images into Kind
+        run: |
+          kind load docker-image autoops-api:ci --name autoops-proof
+          kind load docker-image autoops-worker:ci --name autoops-proof
+          kind load docker-image autoops-frontend:ci --name autoops-proof
+      - name: Render Kind deployment manifest
+        run: |
+          mkdir -p reports/kind
+          python -m pip install PyYAML==6.0.3
+          python scripts/render_k8s_deployment_proof.py --output reports/kind/autoops-kind.yaml
+      - name: Apply AutoOps to Kind
+        run: |
+          postgres_password="$(openssl rand -hex 24)"
+          jwt_secret="$(openssl rand -hex 32)"
+          bootstrap_password="$(openssl rand -hex 24)"
+          kubectl apply -f reports/kind/autoops-kind.yaml
+          kubectl -n autoops create secret generic autoops-secrets \
+            --from-literal=postgres-password="$postgres_password" \
+            --from-literal=database-url="postgresql://postgres:${postgres_password}@postgres:5432/autoops" \
+            --from-literal=jwt-secret-key="$jwt_secret" \
+            --from-literal=bootstrap-password="$bootstrap_password" \
+            --dry-run=client -o yaml | kubectl apply -f -
+      - name: Wait for Kubernetes rollouts
+        run: |
+          kubectl -n autoops rollout status deployment/redis --timeout=180s
+          kubectl -n autoops rollout status deployment/postgres --timeout=240s
+          kubectl -n autoops rollout status deployment/api --timeout=300s
+          kubectl -n autoops rollout status deployment/worker --timeout=240s
+          kubectl -n autoops rollout status deployment/beat --timeout=240s
+          kubectl -n autoops rollout status deployment/frontend --timeout=240s
+      - name: Smoke check Kubernetes API service
+        run: |
+          kubectl -n autoops get all -o wide > reports/kind/resources.txt
+          kubectl -n autoops get pods -o json > reports/kind/pods.json
+          kubectl -n autoops describe deployments > reports/kind/deployments.txt
+          kubectl -n autoops port-forward svc/api 8000:8000 > reports/kind/port-forward.log 2>&1 &
+          pf_pid=$!
+          sleep 8
+          curl -fsS http://127.0.0.1:8000/health > reports/kind/api-health.json
+          curl -fsS http://127.0.0.1:8000/version > reports/kind/api-version.json
+          kill "$pf_pid"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k8s-deployment-proof
+          path: reports/kind/
+          if-no-files-found: error
