@@ -329,6 +329,17 @@ jobs:
           curl -fsS http://127.0.0.1:8000/health > reports/kind/api-health.json
           curl -fsS http://127.0.0.1:8000/version > reports/kind/api-version.json
           kill "$pf_pid"
+      - name: Capture Kubernetes failure diagnostics
+        if: failure()
+        run: |
+          kubectl -n autoops get all -o wide > reports/kind/resources.txt
+          kubectl -n autoops get pods -o json > reports/kind/pods.json
+          kubectl -n autoops describe pods > reports/kind/pod-descriptions.txt
+          for pod in $(kubectl -n autoops get pods -o name); do
+            name="${pod#pod/}"
+            kubectl -n autoops logs "$pod" --all-containers --tail=500 \
+              > "reports/kind/${name}.log" 2>&1 || true
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
