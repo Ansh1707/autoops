@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Scan Git history with Gitleaks
@@ -65,17 +65,17 @@ jobs:
       AUTOOPS_BUILD_REF: ${{ github.ref_name }}
       AUTOOPS_IMAGE_TAG: ci-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Generate ephemeral CI authentication secret
         run: |
           secret="$(openssl rand -hex 32)"
           echo "::add-mask::$secret"
           echo "JWT_SECRET_KEY=$secret" >> "$GITHUB_ENV"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -85,7 +85,7 @@ jobs:
         working-directory: frontend
       - run: python scripts/release_check.py
       - run: python scripts/release_manifest.py --output reports/release-manifest.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-manifest
           path: reports/release-manifest.json
@@ -135,7 +135,7 @@ jobs:
           echo "$pip_audit_status" > reports/pip-audit.exitcode
           echo "$npm_audit_status" > reports/npm-audit.exitcode
           exit 0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: trivy-fs-report
@@ -143,7 +143,7 @@ jobs:
             reports/trivy-fs.json
             reports/trivy-fs.exitcode
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: package-audit-reports
@@ -170,14 +170,14 @@ jobs:
       packages: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: sigstore/cosign-installer@v3.5.0
+      - uses: sigstore/cosign-installer@v4.1.2
       - name: Compute image metadata
         id: image-meta
         shell: bash
@@ -194,7 +194,7 @@ jobs:
           echo "frontend=ghcr.io/$repo/autoops-frontend:$tag" >> "$GITHUB_OUTPUT"
       - name: Build and push API image
         id: build-api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.api
@@ -208,7 +208,7 @@ jobs:
             org.opencontainers.image.version=${{ steps.image-meta.outputs.tag }}
       - name: Build and push worker image
         id: build-worker
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.worker
@@ -222,7 +222,7 @@ jobs:
             org.opencontainers.image.version=${{ steps.image-meta.outputs.tag }}
       - name: Build and push frontend image
         id: build-frontend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontend
           file: frontend/Dockerfile.frontend
@@ -263,7 +263,7 @@ jobs:
             ]
           }
           EOF
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: image-signing-evidence
@@ -280,9 +280,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-kubectl@v4
-      - uses: helm/kind-action@v1.12.0
+      - uses: actions/checkout@v7
+      - uses: azure/setup-kubectl@v5
+      - uses: helm/kind-action@v1.14.0
         with:
           cluster_name: autoops-proof
           wait: 120s
@@ -346,7 +346,7 @@ jobs:
             kubectl -n autoops logs "$pod" --all-containers --tail=500 \
               > "reports/kind/${name}.log" 2>&1 || true
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: k8s-deployment-proof
