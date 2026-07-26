@@ -67,7 +67,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Generate ephemeral CI authentication secret
-        run: echo "JWT_SECRET_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+        run: |
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$secret"
+          echo "JWT_SECRET_KEY=$secret" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -303,6 +306,9 @@ jobs:
           postgres_password="$(openssl rand -hex 24)"
           jwt_secret="$(openssl rand -hex 32)"
           bootstrap_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$postgres_password"
+          echo "::add-mask::$jwt_secret"
+          echo "::add-mask::$bootstrap_password"
           kubectl apply -f reports/kind/autoops-kind.yaml
           kubectl -n autoops create secret generic autoops-secrets \
             --from-literal=postgres-password="$postgres_password" \

@@ -9,6 +9,7 @@ def test_ci_policy_current_workflow_passes():
     assert {check["check"] for check in summary["checks"]} >= {
         "least_privilege_permissions",
         "concurrency_control",
+        "generated_secrets_masked",
         "release_gate_runs",
         "release_manifest_artifact",
     }
@@ -50,3 +51,20 @@ jobs:
     failed = {check["check"] for check in summary["checks"] if not check["ok"]}
     assert "release_gate_runs" in failed
     assert "release_manifest_artifact" in failed
+
+
+def test_ci_policy_rejects_unmasked_generated_secret(tmp_path):
+    workflow = tmp_path / "ci.yml"
+    workflow.write_text(
+        ci_policy_check.CI_FILE.read_text(encoding="utf-8").replace(
+            '          echo "::add-mask::$secret"\n',
+            "",
+        ),
+        encoding="utf-8",
+    )
+
+    summary = ci_policy_check.run_ci_policy_checks(workflow)
+
+    assert summary["ok"] is False
+    failed = {check["check"] for check in summary["checks"] if not check["ok"]}
+    assert "generated_secrets_masked" in failed

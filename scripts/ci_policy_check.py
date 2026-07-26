@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import sys
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -70,6 +71,22 @@ def run_ci_policy_checks(path: pathlib.Path = CI_FILE) -> dict[str, Any]:
     services = release_job.get("services") or {}
     commands = _run_commands(steps)
     all_commands = "\n".join(commands)
+    all_workflow_commands = "\n".join(
+        command
+        for job in jobs.values()
+        for command in _run_commands((job or {}).get("steps") or [])
+    )
+    generated_secret_variables = re.findall(
+        r'^\s*([A-Za-z_][A-Za-z0-9_]*)=.*openssl rand',
+        all_workflow_commands,
+        flags=re.MULTILINE,
+    )
+    unmasked_secret_variables = [
+        variable
+        for variable in generated_secret_variables
+        if f"::add-mask::${variable}" not in all_workflow_commands
+        and f"::add-mask::${{{variable}}}" not in all_workflow_commands
+    ]
 
     results = [
         PolicyResult("workflow_exists", True, _display_path(path)),
@@ -93,6 +110,15 @@ def run_ci_policy_checks(path: pathlib.Path = CI_FILE) -> dict[str, Any]:
         PolicyResult("python_setup", _uses_action(steps, "actions/setup-python@v5"), "uses actions/setup-python@v5"),
         PolicyResult("node_setup", _uses_action(steps, "actions/setup-node@v4"), "uses actions/setup-node@v4"),
         PolicyResult("npm_ci", "npm ci" in all_commands, "frontend dependencies installed with npm ci"),
+        PolicyResult(
+            "generated_secrets_masked",
+            bool(generated_secret_variables) and not unmasked_secret_variables,
+            (
+                f"masked generated variables: {', '.join(generated_secret_variables)}"
+                if generated_secret_variables and not unmasked_secret_variables
+                else f"unmasked generated variables: {', '.join(unmasked_secret_variables) or 'none found'}"
+            ),
+        ),
         PolicyResult("release_gate_runs", "python scripts/release_check.py" in all_commands, "full release gate runs in CI"),
         PolicyResult(
             "release_manifest_artifact",
