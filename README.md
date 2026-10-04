@@ -473,6 +473,19 @@ python scripts/run_evals.py
 
 The eval runner is CI-friendly: it prints a JSON summary and exits non-zero on any failed case.
 
+For a small end-to-end check with a running Ollama model, run:
+
+```bash
+venv/bin/python scripts/run_live_evals.py --model qwen2.5:3b --timeout 120 --output reports/live-model-results.json
+```
+
+This opt-in suite sends three fixture tasks through `run_investigation` with tool execution limited to read-only fixture tools. It records each request, selected/executed tools, final answer, completion time, and failures. It uses a temporary Chroma directory and requires no Docker, database, Redis, Gmail, or private files. The result is model- and machine-dependent, so it is not a CI pass gate. A verified example is in [live-model-results.json](docs/demo/live-model-results.json), and its first task is shown in the [12-second video replay](docs/demo/autoops-task-replay.mp4). The replay is rendered from the recorded result; it is not a screen capture. To regenerate it on macOS with FFmpeg installed:
+
+```bash
+venv/bin/pip install Pillow==12.3.0
+venv/bin/python scripts/render_agent_demo.py docs/demo/live-model-results.json docs/demo/autoops-task-replay.mp4
+```
+
 ## Cloud Deployment Path
 
 For AWS, map Postgres to RDS, Redis to ElastiCache, the API/worker/frontend to EKS or ECS, Chroma persistence to EBS/EFS, and secrets to AWS Secrets Manager or Kubernetes Secrets.

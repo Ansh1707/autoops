@@ -1,0 +1,4 @@
+Service: Atlas
+Port: 8123
+Rollback procedure: restore last known good image.
+ROLLBACK_MARKER: restore last known good image

@@ -1,0 +1,57 @@
+{
+  "suite": "live_model_tasks",
+  "recorded_at": "2026-10-04T15:41:21.257986+00:00",
+  "model": "qwen2.5:3b",
+  "base_url": "http://localhost:11434",
+  "timeout_seconds": 120,
+  "passed": 3,
+  "failed": 0,
+  "total": 3,
+  "cases": [
+    {
+      "selected_tools": [
+        "read_file"
+      ],
+      "executed_tools": [
+        "read_file"
+      ],
+      "final_answer": "The service name is Atlas and the port is 8123. The rollback procedure is to restore the last known good image.",
+      "failures": [],
+      "passed": true,
+      "name": "read_service_note",
+      "request": "Read <repo>/evals/fixtures/service-notes.txt and tell me the service name and port.",
+      "expected_tool": "read_file",
+      "duration_seconds": 11.39
+    },
+    {
+      "selected_tools": [
+        "search_codebase"
+      ],
+      "executed_tools": [
+        "search_codebase"
+      ],
+      "final_answer": "The ROLLBACK_MARKER is found in `service-notes.txt` at line 4. The procedure is to **restore the last known good image**. Please review the full content for more details.",
+      "failures": [],
+      "passed": true,
+      "name": "search_rollback_note",
+      "request": "Search <repo>/evals/fixtures for ROLLBACK_MARKER and report the procedure.",
+      "expected_tool": "search_codebase",
+      "duration_seconds": 11.43
+    },
+    {
+      "selected_tools": [
+        "list_directory"
+      ],
+      "executed_tools": [
+        "list_directory"
+      ],
+      "final_answer": "The following files are in `<repo>/evals/fixtures`:\n\n- `service-notes.txt` (0.1 KB)",
+      "failures": [],
+      "passed": true,
+      "name": "list_fixture_files",
+      "request": "List files in <repo>/evals/fixtures.",
+      "expected_tool": "list_directory",
+      "duration_seconds": 8.7
+    }
+  ]
+}
